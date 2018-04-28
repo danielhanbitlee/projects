@@ -1,0 +1,495 @@
+---
+title: "Assignment 3"
+author: "Daniel Lee"
+date: "November 22, 2016"
+output: pdf_document
+---
+
+#Question 2
+
+##Log-likelihood Surface for Trinomial Probabilities
+
+```{r eval = FALSE}
+
+require(devtools)
+require(grid)
+require(ggtern)
+require(geometry)
+require(RColorBrewer)
+require(reshape2)
+
+```
+
+```{r include = FALSE}
+
+require(devtools)
+require(grid)
+require(ggtern)
+require(geometry)
+require(RColorBrewer)
+require(reshape2)
+
+```
+
+```{r}
+
+myPaletteSeq <- brewer.pal(9,'Set1')
+
+# Create a matrix with all possible combinations of pi_a and pi_b
+all_pi_combinations <- expand.grid(pi_a = seq(0, 1, by = 0.01),
+                        pi_b = seq(0, 1, by = 0.01))
+
+# Select pi_a and pi_b values greater than zero
+all_pi_combinations <- all_pi_combinations[all_pi_combinations$pi_a > 0 
+                                           & all_pi_combinations$pi_b > 0,]
+
+# Select rows where pi_a + pi_b is less than 1
+# Do not select rows where pi_a + pi_b = 1 because then pi_o = 0, which
+# would cause an error because log(0) = negative infinity
+all_pi_combinations <- all_pi_combinations[(all_pi_combinations$pi_a +
+                                              all_pi_combinations$pi_b < 1),]
+
+# Add pi_o column
+all_pi_combinations$pi_o <- 1 - (all_pi_combinations$pi_a + all_pi_combinations$pi_b)
+
+# Data from the Clark dataset
+Y_A <- 186
+Y_B <- 38
+Y_AB <- 13
+Y_O <- 284
+
+# Initial values of pi_a, pi_b, pi_o
+pi <- c(1/3, 1/3, 1/3)
+
+#Description: function that calculates log-likelihood of incomplete
+# data structure
+# Input
+# pi_a: allele frequency pi_a
+# pi_b: allele frequency pi_b
+# pi_o: allele frequency pi_o
+# Output
+# loglikelihood: numeric
+loglik <- function(Y_A, Y_B, Y_AB, Y_O, pi){
+  
+  pi_a <- pi[1]
+  pi_b <- pi[2]
+  pi_o <- pi[3]
+  n <- pi_a + pi_b + pi_o
+  
+  #log-likelihood for incomplete data structure
+  loglikelihood <- lgamma(n + 1) - 
+    lgamma(Y_A + 1) - 
+    lgamma(Y_B + 1) - 
+    lgamma(Y_O + 1) - 
+    lgamma(Y_AB + 1) + 2 * Y_O * log(pi_o) +  
+    Y_A * log(pi_a ^ 2 + 2 * pi_a * pi_o) + 
+    Y_B * log(pi_b ^ 2 + 2 * pi_b * pi_o) + 
+    Y_AB * log(2 * pi_a * pi_b)
+    
+  return(loglikelihood)
+    
+}
+
+# Calculate the log-likelihood for every combination of pi
+all_loglik <- apply(all_pi_combinations, 1, function(x) {
+  loglik(Y_A, Y_B, Y_AB, Y_O, x)})
+
+
+all_pi_combinations$loglik <- all_loglik
+
+# Barycentric Coordinates
+ggtern(data = all_pi_combinations,
+      (aes(x = pi_a, y = pi_b, z = pi_o))) +
+  stat_density_tern(geom = "polygon", color = "black",
+                      n = 500, h = 0.75, expand = 1.5,
+                      base = 'identity',
+                      aes(fill = ..level.., weight = loglik),
+                      na.rm = TRUE) +
+    theme_light() +
+    theme(legend.position = c(0,1),
+          legend.justification = c(0,1)) +
+    labs(fill = "log-likelihood",
+          colour = "log-likelihood",
+          title = "Log-likelihood Surface for Observed Incomplete Data Structure") +
+    Llab(expression(paste(pi[A],",0,0"))) +
+    Tlab(expression(paste("0,",pi[B],",0"))) +
+    Rlab(expression(paste("0,0,",pi[O])))
+
+```
+
+\pagebreak
+
+#Question 4
+
+##Software Implementation of EM Algorithm
+
+```{r}
+
+# DESCRIPTION: This function implenets the EM algorithm for MLE estimation based on input data. 
+# Then, this function creates an object of class "EM_ABO" that contains
+# information of the EM algorithm implementation.
+# of the ABO allele frequencies
+# INPUT
+# Y_A: observed phenotype counts of blood group A
+# Y_B: observed phenotype counts of blood group B
+# Y_O: observed phenotype counts of blood group O
+# Y_AB: observed phenotype counts of blood group AB
+# pi_a_old: starting value for pi_a allele frequency
+# pi_b_old: starting value for pi_b allele frequency
+# pi_o_old: starting value for pi_o allele frequency
+# stop_criteria: stopping criteria for EM algorithm iteration based on
+# difference in absolute value of log-likelihoods from k-1 and k iterations
+# OUTPUT
+# Calls the print method to print candidate MLEs for the allele 
+# frequencies along with observed data log-likelihood
+# res: list that contains last iteration number, MLEs for the allele frequencies,
+# final observed data log-likelihood, and a data frame that logs all the
+# iterations of the EM algorithm (not printed but contained in the object)
+EM_ABO <- function(Y_A, 
+                   Y_B,
+                   Y_O,
+                   Y_AB, 
+                   pi_a_old, 
+                   pi_b_old, 
+                   pi_o_old, 
+                   stop_criteria){
+  
+  # Description: function that calculates allele frequencies for new iteration
+  # using allele frequencies from previous iteration
+  # Input
+  # pi_a: old allele frequency pi_a
+  # pi_b: old allele frequency pi_b
+  # pi_o: old allele frequency pi_o
+  # Output
+  # a vector of new allele frequencies
+  update_pi <- function(pi_a, pi_b, pi_o){
+    
+    pi_a_new <- (2 * Y_A * (pi_a ^ 2 / (pi_a ^ 2 + 2 * pi_a * pi_o)) +
+                 Y_A * (2 * pi_a * pi_o / (pi_a ^ 2 + 2 * pi_a * pi_o)) + 
+                  Y_AB) / (2 * n)
+    
+    pi_b_new <- (2 * Y_B * (pi_b ^ 2 / (pi_b ^ 2 + 2 * pi_b * pi_o)) +
+                 Y_B * (2 * pi_b * pi_o / (pi_b ^ 2 + 2 * pi_b * pi_o)) + 
+                  Y_AB) / (2 * n)
+    
+    pi_o_new <-  (Y_A * (2 * pi_a * pi_o / (pi_a ^ 2 + 2 * pi_a * pi_o)) + 
+                 Y_B * (2 * pi_b * pi_o / (pi_b ^ 2 + 2 * pi_b * pi_o)) + 
+                 2 * Y_O) / (2 * n)
+    
+    return(c(pi_a_new, pi_b_new, pi_o_new))
+    
+  }
+  
+  # Description: function that calculates log-likelihood of incomplete
+  # data structure
+  # Input
+  # pi_a: allele frequency pi_a
+  # pi_b: allele frequency pi_b
+  # pi_o: allele frequency pi_o
+  # Output
+  # loglikelihood: numeric
+  loglik <- function(pi_a, pi_b, pi_o){
+  
+    #log-likelihood for incomplete data structure
+    loglikelihood <- lgamma(n + 1) - 
+      lgamma(Y_A + 1) - 
+      lgamma(Y_B + 1) - 
+      lgamma(Y_O + 1) - 
+      lgamma(Y_AB + 1) + 2 * Y_O * log(pi_o) +  
+      Y_A * log(pi_a ^ 2 + 2 * pi_a * pi_o) + 
+      Y_B * log(pi_b ^ 2 + 2 * pi_b * pi_o) + 
+      Y_AB * log(2 * pi_a * pi_b)
+    
+    return(loglikelihood)
+    
+  }
+
+  # n: total sample size
+  n <- Y_A  + Y_B + Y_AB + Y_O
+  
+  # k: number of iterations in the EM algorithm
+  k <- 0
+  
+  # log likelihood for iteration k = 0
+  log_lik_old <- loglik(pi_a_old, pi_b_old, pi_o_old)
+  
+  # Initiate matrix of EM algorithm iterations
+  # Contents to this matrix will be updated with new iterations
+  iterations_table <- matrix(c(k, pi_a_old, pi_b_old, pi_o_old, log_lik_old), 
+                             nrow = 1, 
+                             ncol = 5, 
+                           dimnames = 
+                             list(c(), c("Iteration", "pi_a", "pi_b", "pi_o", "log_lik")))
+  
+  # Update number of iterations k
+  k <- 1
+
+  # Allele frequency estimates for 1st iteration of EM algorithm
+  pi_new <- update_pi(pi_a_old, pi_b_old, pi_o_old)
+  pi_a_new <- pi_new[1]
+  pi_b_new <- pi_new[2]
+  pi_o_new <- pi_new[3]
+  
+  # log likelihood for iteration k = 1
+  log_lik_new <- loglik(pi_a_new, pi_b_new, pi_o_new)
+  
+  # Update EM algorithm iterations matrix with 1st iteration added
+  iterations_table <- rbind(iterations_table, c(k, pi_new, log_lik_new))
+  
+  # Perform iterations of EM algorithm until stop criteria is met
+  while(abs(log_lik_new - log_lik_old) > stop_criteria){
+    
+    # Update iteration number k
+    k <- k + 1
+    
+    # Calculate new estimates of allele frequencies
+    pi_new <- update_pi(pi_a_new, pi_b_new, pi_o_new)
+    pi_a_new <- pi_new[1]
+    pi_b_new <- pi_new[2]
+    pi_o_new <- pi_new[3]
+  
+    # Calculate updated log likelihood value using new allele frequencies
+    log_lik_old <- log_lik_new
+    log_lik_new <- loglik(pi_a_new, pi_b_new, pi_o_new)
+    iterations_table <- rbind(iterations_table, c(k, pi_new, log_lik_new))
+    
+  }
+  
+  # List of objects for the "EM_ABO" object
+  res <- list(
+    iteration = k,
+    pi_a_mle = pi_a_new,
+    pi_b_mle = pi_b_new,
+    pi_o_mle = pi_o_new,
+    log_likelihood = log_lik_new,
+    iterations_table = as.data.frame(iterations_table)
+  )
+  
+  # Define class to access the print function for "EM_ABO" class
+  class(res) <- "EM_ABO"
+  res
+  
+}
+
+# Description: prints summary information for 'EM_ABO' object
+# Input
+# x: object of class 'EM_ABO'
+# Output
+# the allele frequences mle and log likelihood value for the last iteration
+print.EM_ABO <- function(x) {
+  
+  cat('pi_a_mle:', x$pi_a_mle, '\n')
+  cat('pi_b_mle:', x$pi_b_mle, '\n')
+  cat('pi_o_mle:', x$pi_o_mle, '\n')
+  cat('log_likelihood:', x$log_likelihood, '\n')
+  invisible(x)
+  
+}
+
+```
+
+#Question 5
+
+##Application of EM Algorithm to Clark Dataset Using Initial Values of $\pi_A = 1/3$, $\pi_B = 1/3$, and $\pi_O = 1/3$
+
+```{r}
+
+# data from the Clark dataset
+Y_A <- 186
+
+Y_B <- 38
+
+Y_AB <- 13
+
+Y_O <- 284
+
+n <- Y_A + Y_B + Y_AB + Y_O
+
+stop_criteria <- 0.00000001
+
+#initial values of the allele frequencies to pass to EM algorithm
+pi_a_old <- 1/3
+
+pi_b_old <- 1/3
+
+pi_o_old <- 1/3
+
+MLE_Clark_data <- EM_ABO(Y_A, Y_B, Y_O, Y_AB, pi_a_old, pi_b_old, pi_o_old, stop_criteria)
+
+# candidate MLEs for the allele frequencies
+# and corresponding value of the observed data log-likelihood
+# for final estimate
+MLE_Clark_data
+
+# Progress of EM algorithm for Clark data for every iteration
+iterations_table <- MLE_Clark_data$iterations_table
+iterations_table
+
+labels <- c(expression(pi[A]),
+  expression(pi[B]),
+  expression(pi[O]))
+
+# plot of of the change in pi values as iterations change in the EM algorithm
+matplot(iterations_table$Iteration, 
+        iterations_table[,2:4], 
+        type = "l",
+        xlab = "Iterations",
+        ylab = expression(pi),
+        lty = 1, lwd = 3,
+        main = expression(paste("Values of ", pi)),
+        col = myPaletteSeq)
+legend("topleft", labels, 
+       col=myPaletteSeq,
+       fill=myPaletteSeq,
+       bty = "n")
+
+# Log-likelihood of pi for incomplete data
+plot(iterations_table$Iteration, 
+     iterations_table$log_lik,
+     type = "l",
+      xlab = "Iterations",
+      ylab = "Log-Likelihood",
+      lty = 1, lwd = 3,
+      main = expression(paste("Log-Likelihood of ", pi)),
+      col = "red")
+
+```
+
+##Application of EM Algorithm to Clark Dataset Using Different Initial Values of the Allele Frequencies
+
+```{r}
+
+#1
+pi_a_old <- 1
+pi_b_old <- 0
+pi_o_old <- 0
+
+# The commented code below causes an error because the log-likelihood
+# function becomes negative infinity
+#EM_1 <- EM_ABO(Y_A, Y_B, Y_O, Y_AB, pi_a_old, pi_b_old, pi_o_old, stop_criteria)
+
+#2
+pi_a_old <- .9999999
+pi_b_old <- (1 - pi_a_old) / 2
+pi_o_old <- pi_b_old
+
+EM_2 <- EM_ABO(Y_A, Y_B, Y_O, Y_AB, pi_a_old, pi_b_old, pi_o_old, stop_criteria)
+
+EM_2
+
+iterations_table <- EM_2$iterations_table
+iterations_table
+
+#3
+pi_b_old <- .9999999
+pi_a_old <- (1 - pi_b_old) / 2
+pi_o_old <- pi_a_old
+
+EM_3 <- EM_ABO(Y_A, Y_B, Y_O, Y_AB, pi_a_old, pi_b_old, pi_o_old, stop_criteria)
+
+EM_3
+
+iterations_table <- EM_3$iterations_table
+iterations_table
+
+#4
+pi_o_old <- .9999999
+pi_a_old <- (1 - pi_o_old) / 2
+pi_b_old <- pi_a_old
+
+EM_4 <- EM_ABO(Y_A, Y_B, Y_O, Y_AB, pi_a_old, pi_b_old, pi_o_old, stop_criteria)
+
+EM_4
+
+iterations_table <- EM_4$iterations_table
+iterations_table
+
+```
+
+When the initial values of the allele frequencies is zero for any of $\pi_A$, $\pi_B$, or $\pi_O$, the EM algorithm does not work because the log-likelihood becomes negative infinity. Other than that, it seems as though the EM algorithm converges to the same estimates of the allele frequencies regardless of the initial values of the allele frequencies. The convergence seems to be pretty quick. At most, it takes nine iterations to converge to an estimate.
+
+##Compare Results of EM Algorithm to One of the Optimization Functions In R
+
+I will use the `solnp()` function from the package `Rsolnp`, which performs optimizations for functions with linear equality constraints.
+
+```{r}
+
+require(Rsolnp)
+
+# Negative log-likelihood to minimize
+# This is the negative log-likelihood for the observed incomplete data structure
+negloglik <- function(par){
+    
+    pi_a <- par[1]
+    pi_b <- par[2]
+    pi_o <- par[3]
+    
+    #log-likelihood
+    negloglikelihood <- -(lgamma(n + 1) - 
+      lgamma(Y_A + 1) - 
+      lgamma(Y_B + 1) - 
+      lgamma(Y_O + 1) - 
+      lgamma(Y_AB + 1) + 2 * Y_O * log(pi_o) +  
+      Y_A * log(pi_a ^ 2 + 2 * pi_a * pi_o) + 
+      Y_B * log(pi_b ^ 2 + 2 * pi_b * pi_o) + 
+      Y_AB * log(2 * pi_a * pi_b))
+    
+    return(negloglikelihood)
+    
+}
+
+# Linear equality constraint
+# pi_a + pi_b + pi_o = 1
+eqn1 <- function(x){
+  z1 = x[1] + x[2] + x[3]
+  return(z1)
+}
+
+```
+
+```{r eval = FALSE}
+
+# Optimize the negative log-likelihood function
+optimized <- solnp(par = c(pi_a_old, pi_b_old, pi_o_old), 
+      fun = negloglik, eqfun = eqn1, eqB = 1)
+
+```
+
+```{r include = FALSE}
+
+# Optimize the negative log-likelihood function
+optimized <- solnp(par = c(pi_a_old, pi_b_old, pi_o_old), 
+      fun = negloglik, eqfun = eqn1, eqB = 1)
+
+```
+
+```{r}
+
+# Optimized estimates from solnp function
+optimized$pars
+
+# MLE estimate from EM Algorithm implementation
+MLE_Clark_data
+
+```
+
+The estimates from the implementation of the EM algorithm and the optimized values from `solnp()` function are very similar.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

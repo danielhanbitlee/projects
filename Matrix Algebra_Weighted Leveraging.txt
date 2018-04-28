@@ -1,0 +1,126 @@
+Daniel Lee
+18379784
+Stat 243
+Problem Set 2
+
+a. To download the file, I used the curl -O command and saved the file to the name "Apricot.zip".
+
+curl -O "http://data.un.org/Handlers/DownloadHandler.ashx?DataFilter=itemCode:526&DataMartId=FAO&Format=csv&s=countryName:asc,elementCode:asc,year:desc&c=2,3,4,5,6,7&/Apricot.zip"
+
+
+b. I used the unzip command to unzip Apricot.zip.
+
+unzip Apricot.zip
+
+
+c. I used the grep function to select all the rows with "+" symbol in them. I saved the output to regions.csv.
+
+grep "+" UNdata_Export_20160920_081721819.csv > regions.csv
+
+
+d. I did the inverse selection by using grep -v. Then, using the pipe function, I selected all the rows except the first using the command tail -n +2. Then, I excluded the last 7 rows of the file using the head -n -7 code. I saved the output to countries.csv.
+
+grep -v "+" UNdata_Export_20160920_081721819.csv | tail -n +2 | head -n -7 > countries.csv
+
+
+e. I initially cleaned up the data by removing all the commas in any country names. Then, I removed all the double quotes in the file. I saved the final output in countries3.csv. Then I count the number of unique country names using the cut, uniq, wc, and piping functions.
+
+sed 's/, / /g' countries.csv > countries2.csv
+This command removes the commas in the country names. The output is saved to countries2.csv.
+
+sed 's/\”//g' countries2.csv > countries3.csv
+This command removes the double quotes " from the file. The ouptut is saved to countries3.csv.
+
+cut -f 1 -d "," countries3.csv | uniq | wc -l
+This command selects the first column of countries3.csv, selects all the unique rows, and counts the number of rows.
+
+
+f. I selected all the 2005 data using grep ",2005,". The commas are included because there are other fields with the number 2005 but does not represent data from year 2005. The output is saved to countries2005.csv.
+
+grep ",2005," countries3.csv > countries2005.csv
+
+
+g. I selected all the rows that contains the phrase "Area Harvested" using grep from countries2005.csv. Then, I sorted the output by the sixth column with delimiter ",". I also sorted in reverse order by number. After that, I selected the first five rows of the output.
+
+grep "Area Harvested" countries2005.csv | sort -k 6 -t "," -n -r | head -n 5
+
+The five countries are Turkey, Islamic Republic of Iran, Pakistan, Uzbekistan, and Algeria.
+
+
+h. I use the for loop with the iterations that start from year 1965 and ends at year 2005 with increments of 10. The variable is year. I select the rows with the specific year. I included the commas before and after the year number. That is, I selected for ",$year,". This is because the data contains numbers that are the same as the years but do not represent years. Then, I selected the "Area Harvested" rows, sorted by the sixth column with delimiter ",". I sorted by number in reverse. I then selected the first five rows and saved the output to top5_$year.csv. I also printed the phrase "Top Five For $year" and the contents of the top5_$year.csv using the echo and cat command.
+
+for (( year=1965; year<=2005; year+=10 ))
+do
+  grep ",$year," countries3.csv | grep "Area Harvested" | sort -k 6 -t "," -n -r | head -n 5 > top5_$year.csv
+  echo "Top Five For $year"
+  cat top5_$year.csv
+  echo " "
+done
+
+The rankings have changed over the years.
+
+
+i. I created a function download_item() that takes one argument. The argument is the single item code for the specific fruit. The argument is represented by $1 in the website link. The curl -O function is used to download the zip file. The file is saved in a file called "Item_No_$1.zip". I then unzip "Item_No_$1.zip" and output the data that is in the csv file using the unzip -p option.
+
+function download_item() {
+  curl -O "http://data.un.org/Handlers/DownloadHandler.ashx?DataFilter=itemCode:$1&DataMartId=FAO&Format=csv&s=countryName:asc,elementCode:asc,year:desc&c=2,3,4,5,6,7&/Item_No_$1.zip"
+  unzip -p Item_No_$1.zip
+}
+
+
+2. To download the txt files from the website,
+I use the wget function. When doing this, the status of the downloads are outputted automatically. In the wget, I used the following flags:
+
+-A txt is the flag for selecting only the txt files
+-m is creating a mirror of the website
+-p is getting all the images, etc. needed to display the website
+-E adjusts the extension and saves the documents with proper extensions.
+-k converts the file part of the URS only
+-K backs up the files before converting them
+-np is used so that we don't ascend to the parent directory
+
+wget -A txt -m -p -E -k -K -np textfiles.com/food/
+
+wget automatically creates a new directory named "textfiles.com/" with a subdirectory "food/".
+
+
+To change directories to the directory that contains the downloaded files, I use the cd command with the appropriate location of where the txt files are saved.
+cd textfiles.com/food/
+
+The code below counts the number of txt files downloaded.
+ls | wc -l
+There are 93 txt files.
+
+
+The top five largest files are found by the following code. It's listing the files by the size with command -S.
+
+ls -S | head -n 5
+
+candy.txt, bw.txt, chili.txt, byfb.txt, x-drinks.txt are the five largest txt files.
+
+
+To find the files with numbers in their names, I use grep [0-9].
+
+ls | grep [0-9]
+
+There are 11 files that contain numbers in their names. They are the following:
+1st_aid.txt
+acetab1.txt
+acne1.txt
+b12.txt
+back1.txt
+bond-2.txt
+brush1.txt
+insect1.txt
+meat2.txt
+recip1.txt
+seeds42.txt
+
+
+To count the number of files that do not contain numbers in their names, I use grep to inverse select files. That is, I select files without numbers in their names. Then I count the number of files.
+
+ls | grep -v [0-9] | wc -l
+
+
+
+

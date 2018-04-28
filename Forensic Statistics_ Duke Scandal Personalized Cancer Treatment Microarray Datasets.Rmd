@@ -1,0 +1,553 @@
+---
+title: "HW 1 PH 240C"
+author: "Daniel Lee"
+date: "September 24, 2016"
+output: pdf_document
+---
+
+```{r eval = FALSE}
+library(Biobase)
+library(genefilter)
+library(gplots)
+library(hopach)
+library(RColorBrewer)
+```
+
+```{r include = FALSE}
+library(Biobase)
+library(genefilter)
+library(gplots)
+library(hopach)
+library(RColorBrewer)
+```
+
+#Question 1
+
+Examine the different objects in the R dataset `examiningDoxorubicinInDetail.RData`. Store the ex pression measures and the sample- and gene-level annotation metadata related to `doxorubicinNCI60Scaled` and `doxorubicin07Numbers` in objects of class `ExpressionSet` (Bioconductor R package `Biobase`).
+
+```{r}
+load("C:\\Users\\Daniel\\Desktop\\Fall 2016\\PH 240C\\examiningDoxorubicinInDetail.RData")
+```
+
+
+```{r}
+
+### Creating an Expression Set for doxorubicinNCI60Scaled ###
+
+exprs_scaled <- as.matrix(doxorubicinNCI60Scaled)
+dim(exprs_scaled)
+
+#phenodata for doxorubicinNCI60Scaled
+samples_scaled <- data.frame(c(rep("Sensitive", 10), rep("Resistant", 12)))
+rownames(samples_scaled) <- colnames(exprs_scaled)
+colnames(samples_scaled) <- "Status"
+
+#Expression Set for doxorubicinNCI60Scaled created
+ExprSet.NCI60.Scaled <- ExpressionSet(assayData = exprs_scaled,
+                                      phenoData = as(samples_scaled,
+                                                     "AnnotatedDataFrame"))
+
+### Creating an Expression Set for doxorubicin07Numbers ###
+exprs_no <- as.matrix(doxorubicin07Numbers)
+dim(exprs_no)
+
+#phenodata for doxorubicin07Numbers
+samples_no <- data.frame(doxorubicin07Info)
+dim(samples_no)
+  
+#Expression Set for doxorubicin07Numbers created
+ExprSet.Doxo07.Numbers <- ExpressionSet(assayData = exprs_no,
+                            phenoData = as(samples_no, "AnnotatedDataFrame"))
+
+```
+
+#Question 2
+
+Reconcile the training data in `doxorubicinNCI60Scaled` and `doxorubicin07Numbers`, i.e., match genes and samples and compare the expression measures and the sensitivity status assigned to the cell lines in the two 
+
+To answer this question, I first see if the training data microarray expression measures for the first gene `36460_at` in ExprSet.NCI60.Scaled has any matches to the microarray expression measures for any of the genes in the ExprSet.Doxo07.Numbers. I do this using correlation.
+
+```{r}
+
+#Use correlation to see if the first gene 36460_at in
+#doxorubicinNCI60Scaled for all the cell lines is the same as the
+#microarray expression of the gene 36460_at in doxorubicin07Numbers for
+#all the cell lines in the training data
+temp <- cor(exprs(ExprSet.NCI60.Scaled)[1, ], 
+            t(exprs(ExprSet.Doxo07.Numbers)[, 1:22]))
+
+max(temp)
+
+sum(temp == max(temp))
+
+```
+
+I notice that there is one gene with the exact same microarray expression measures as the first gene `36460_at`.
+
+Now, I create a scatter plot to see if there are any other genes in `doxorubicin07Numbers` with relatively close gene expressions as gene `36460_at`. 
+
+```{r}
+
+rownames(exprs(ExprSet.Doxo07.Numbers))[which.max(temp)]
+
+smoothScatter(1:length(temp), temp, 
+              xlab = "Row Index", 
+              ylab = "Correlation", 
+              main = paste("Correlation with Scaled Values for", 
+                                                 rownames(exprs(ExprSet.NCI60.Scaled))[1])) 
+points(which.max(temp), max(temp), pch = "o", col = "red", cex = 2)
+
+```
+
+I see that the rest of the genes have pretty different microarray expressions. 
+
+Now I examine microarray expressions for each gene in training data of the `doxorubicinNCI60Scaled` expression set and see if they have exact matches in `doxorubicin07Numbers`.
+
+```{r}
+#Find and store all the row indices that has maximum correlations for
+#genes in the training data in doxorubicinNCI60Scaled to those in
+#doxorubicin07Numbers
+tempIndices <- apply(exprs(ExprSet.Doxo07.Numbers)[, 1:22], 1, 
+                     function(x) { 
+                       which.max(cor(x, t(exprs(ExprSet.NCI60.Scaled)))) 
+                       }
+                     )
+
+#Give the output of the maximum correlations for the gene expressions
+#between genes in doxorubicinNCI60Scaled to those in
+#doxorubicin07Numbers
+tempCors <- apply(cbind(exprs(ExprSet.Doxo07.Numbers)[, 1:22], 
+                        exprs(ExprSet.NCI60.Scaled)[tempIndices, ]), 1,
+                  function(x) {
+                    cor(x[1:22], x[23:44]) 
+                    }
+                  )
+min(tempCors)
+
+```
+
+I notice that the minimum of the tempCors is `r min(tempCors)`, which is essentially 1. This slightly lower value is due to rounding error.
+
+This suggests that the cell lines in the training set of `doxorubicin07Numbers` is the same cell lines in `doxorubicinNCI60Scaled`.
+
+Few outputs are shown below to confirm this.
+
+```{r}
+
+exprs(ExprSet.Doxo07.Numbers)[1:4, 1:5]
+exprs(ExprSet.NCI60.Scaled)[rownames(exprs(ExprSet.Doxo07.Numbers))[1:4], 1:5]
+
+```
+
+Now, I examine the sensitivity status assigned to the cell lines in the two datasets.
+
+```{r}
+pData(ExprSet.Doxo07.Numbers)$status[1:22]
+pData(ExprSet.NCI60.Scaled)[,1]
+pData(ExprSet.Doxo07.Numbers)$status[1:22] == pData(ExprSet.NCI60.Scaled)[,1]
+```
+
+I notice that all the labels are switched. That is, the cell lines that are labeled as resistant in `doxorubicin07Numbers` is labeled as sensitive in `doxorubicinNCI60Scaled` and vice versa.
+
+#Question 3
+
+Consider now the test data in `doxorubicin07Numbers`. Is there anything unusual with the samples and their assigned sensitivity statuses? Hint: Consider pairwise distances and dimensionality reduction and clustering methods.
+
+To answer this question, I first do a PCA. 
+
+```{r}
+
+#PCA
+
+#log-transform the data first
+log_doxo_test_numbers <- log2(exprs(ExprSet.Doxo07.Numbers)[ , 23:144] + 1)
+
+#Store the resistant/sensitive labels to object Y
+Y <- pData(ExprSet.Doxo07.Numbers)$status
+
+#Designate the colors for resistant and sensitive labels
+colG <- c("red", "blue")[factor(Y)]
+
+#Run principal component analysis
+res <- prcomp(t(log_doxo_test_numbers),retx=TRUE)
+
+#Print the summary of PCA
+summary(res)
+
+#Barplot of proportion of variance explained by each principal component
+barplot(res$sdev^2/sum(res$sdev^2), xlab="PCk",
+        ylab=expression(lambda[k]/Sigma[k]*lambda[k]),
+        main="doxorubicin07Numbers Test Data: prcomp")
+
+#Scatterplot of first two principal components
+plot(res$x[,1:2], pch=16, col = colG, asp = 1,
+     main="doxorubicin07Numbers Test Data: prcomp")
+legend("topright", c("Resistant", "Sensitive"), 
+       pch=16, col=c("red", "blue"))
+ 
+#Scatterplot of first two principal components with the outlier removed
+plot(res$x[,1:2][which(res$x[,1] != max(res$x[,1]))], pch=16, 
+     col = colG, asp = 1, 
+     main="doxorubicin07Numbers Test Data: prcomp", 
+     xlim = c(0, 140), ylim = c(-40, 30), 
+     xlab = "PC1", ylab = "PC2")
+legend("topright", c("Resistant", "Sensitive"), 
+       pch=16, col=c("red", "blue"))
+
+```
+
+PCA analysis of the test data for `doxorubicin07Numbers` indicate that there doesn't seem to be much distinction between the microarray expressions between resistant and sensitive cell lines. There is a lot of overlap in the gene expressions. This can also suggest that the assigned sensitivity statuses can be potentially switched.
+
+Next, I examine the Euclidean pairwise distances among the cell lines.
+
+```{r}
+
+#pairwise distance
+eucli_dist <- as.matrix(dist(t(log_doxo_test_numbers)))
+hist(eucli_dist)
+min(eucli_dist)
+sum(eucli_dist == 0) 
+#there are more than 122 zeros, which suggests duplicates.
+
+```
+
+The `eucli_dist` is expected to contain 122 zeros since the Euclidean distance for a cell line to itself would be zero. However, the fact that there are `r sum(eucli_dist == 0)` zeros indicate that some cell lines have exactly the same microarray expressions. This suggests that data for some cell lines have been included more than once in the dataset.
+
+Next, I examing clustering with PAM.
+
+```{r}
+
+#Clustering using PAM
+# One-minus-correlation distance matrix
+r <- cor(exprs(ExprSet.Doxo07.Numbers))
+d <- 1-r
+dimnames(d) <- list(as.vector(Y),as.vector(Y))
+
+# PAM, K=2
+pam2 <- pam(as.dist(d), k=2, diss=TRUE)
+
+# PAM, K=3
+pam3 <- pam(as.dist(d), k=3, diss=TRUE)
+
+# Graphical summaries
+clusplot(d, pam2$clustering, diss=TRUE, labels=3, 
+         col.p=1, col.txt=rank(unique(Y))[factor(Y)]+1,
+         main="doxorubicin07Numbers Test Data: 
+         Bivariate cluster plot for PAM \n K=2 clusters,
+         one-minus-correlation distance, J = 8958 probes")
+plot(pam2,which.plots=2,
+     main="doxorubicin07Numbers Test Data: 
+     Silhouette plot for PAM \n K=2 clusters, 
+     one-minus-correlation distance, J = 8958 probes") 
+
+
+clusplot(d, pam3$clustering, diss=TRUE, labels=3, 
+         col.p=1, col.txt=rank(unique(Y))[factor(Y)]+1,
+         main="doxorubicin07Numbers Test Data: 
+         Bivariate cluster plot for PAM \n K=3 clusters,
+         one-minus-correlation distance, J = 8958 probes")
+plot(pam3,which.plots=2,
+     main="doxorubicin07Numbers Test Data: 
+     Silhouette plot for PAM \n K=3 clusters, 
+     one-minus-correlation distance, J = 8958 probes") 
+
+## ----pam2----------------------------------------------------------------
+table(pam2$clustering, Y)
+
+## ----pam3----------------------------------------------------------------
+table(pam3$clustering, Y)
+```
+
+PAM clustering with K = 2 and K = 3 reveal that the clustering is not effective. The silhouette widths of the clusters for both K = 2 and K = 3 clusters are close to zero, indicating that the clustering is not effective.
+
+```{r}
+
+## ----pamSil--------------------------------------------------------------
+# Average silhouette widths for PAM with K = 2, ...,10 clusters
+K <- 2:10
+avgSil <- rep(NA, length(K))
+names(avgSil) <- K
+for(k in K)
+  avgSil[k-1] <- pam(as.dist(d), k=k, diss=TRUE)$silinfo$avg.width
+
+# Graphical summaries
+barplot(avgSil, names.arg=K, xlab="Number of clusters, K", ylab="Average silhouette width")
+plot(K, avgSil, pch=16, cex=2, xlab="Number of clusters, K", ylab="Average silhouette width")
+
+## ----avgSil--------------------------------------------------------------
+round(avgSil,3)
+K[which.max(avgSil)]
+
+
+```
+
+The fact that the number of clusters with the highest average silhouette width value is K = 10 clusters indicate that there is something wrong with the data. I would expect the fit to be best for K = 2 clusters since there are two labels "resistant" and "sensitive" cell lines. The inconclusive results from PAM suggests that the sensitivity labels for the different cell lines could have been incorrectly assigned.
+
+#Question 4
+
+##a) Between-sample Normalization
+
+```{r}
+
+boxplot(exprs(ExprSet.NCI60.Scaled))
+col_means <- apply(exprs(ExprSet.NCI60.Scaled), 2, mean)
+plot(col_means)
+summary(col_means)
+hist(col_means, breaks = 22)
+
+
+col_sd <- apply(exprs(ExprSet.NCI60.Scaled), 2, sd)
+plot(col_sd)
+
+```
+
+The boxplots among the cell lines in `doxorubicinNCI60Scaled` indicate that generally, the gene expressions are right-skewed for all cell lines. There is a wide range of the gene expression means among the cell lines. There is also a wide range of variation of gene expressions among the cells. This suggests that the data needs to be normalized.
+
+I perform two normalizations. One is the loess procedure using `affy` package. The other is the full-quantile normalization using the `limma` package.
+
+```{r}
+#loess procedure using affy package
+library(affy)
+```
+
+```{r eval = FALSE}
+exprSet.loess <- normalize.loess(exprs(ExprSet.NCI60.Scaled))
+```
+
+```{r include = FALSE}
+exprSet.loess <- normalize.loess(exprs(ExprSet.NCI60.Scaled))
+```
+
+```{r}
+boxplot(exprSet.loess)
+
+loess_col_means <- apply(exprSet.loess, 2, mean)
+plot(loess_col_means)
+summary(loess_col_means)
+hist(loess_col_means, breaks = 22)
+
+loess_col_sd <- apply(exprSet.loess, 2, sd)
+plot(loess_col_sd)
+
+#full-quantile normalization using limma package
+library(limma)
+
+exprSet.quantile = normalizeQuantiles(exprs(ExprSet.NCI60.Scaled))
+boxplot(exprSet.quantile)
+quant_col_means <- apply(exprSet.quantile, 2, mean)
+plot(quant_col_means)
+hist(quant_col_means, breaks = 22)
+summary(quant_col_means)
+
+quant_col_sd <- apply(exprSet.quantile, 2, sd)
+plot(quant_col_sd)
+
+hist(col_means, breaks = 22, freq = FALSE)
+hist(loess_col_means, breaks = 22, add = TRUE, col = "yellow", freq = FALSE)
+hist(quant_col_means, breaks = 22, add = TRUE, col = "red", freq = FALSE)
+
+```
+
+After normalization, the data has a smaller mean and sd range. The full-quantile normalization has a smaller mean range than the loess normalization.
+
+##b Cluster analysis
+
+The following analysis is done using the loess normalized data. First, I perform the PCA.
+
+```{r}
+
+#PCA
+Y <- pData(ExprSet.NCI60.Scaled)[,1]
+
+colG <- c("red", "blue")[factor(Y)]
+
+res <- prcomp(t(exprSet.loess),retx=TRUE)
+
+summary(res)
+
+barplot(res$sdev^2/sum(res$sdev^2), xlab="PCk",
+        ylab=expression(lambda[k]/Sigma[k]*lambda[k]),
+        main="doxorubicinNCI60Scaled: prcomp")
+
+plot(res$x[,1:2], pch=16, col = colG, asp = 1,
+     main="doxorubicinNCI60Scaled: prcomp")
+legend("topright", c("Resistant", "Sensitive"), 
+       pch=16, col=c("red", "blue"))
+
+invisible(dev.off())
+```
+
+PCA shows pretty distinct separation between the resistant and the sensitive cell lines.
+
+#Partitioning Clustering
+
+```{r}
+
+# One-minus-correlation distance matrix
+r <- cor(exprSet.loess)
+d <- 1-r
+
+Y <- pData(ExprSet.NCI60.Scaled)[,1]
+
+colG <- c("red", "blue")[factor(Y)]
+
+dimnames(d) <- list(as.vector(Y),as.vector(Y))
+
+# PAM, K=2
+pam2 <- pam(as.dist(d), k=2, diss=TRUE)
+
+# PAM, K=3
+pam3 <- pam(as.dist(d), k=3, diss=TRUE)
+
+# Graphical summaries
+clusplot(d, pam2$clustering, diss=TRUE, labels=3, col.p=1,
+         col.txt=rank(unique(Y))[factor(Y)]+1, 
+         main="Bivariate cluster plot for PAM \n K=2 clusters,
+         one-minus-correlation distance")
+plot(pam2,which.plots=2,main="Silhouette plot for PAM \n K=2 clusters,
+     one-minus-correlation distance") 
+
+clusplot(d, pam3$clustering, diss=TRUE, labels=3, col.p=1,
+         col.txt=rank(unique(Y))[factor(Y)]+1, 
+         main="Bivariate cluster plot for PAM \n K=3 clusters,
+         one-minus-correlation distance")
+plot(pam3,which.plots=2,main="Silhouette plot for PAM \n K=3 clusters,
+     one-minus-correlation distance") 
+
+
+## ----pam2----------------------------------------------------------------
+table(pam2$clustering, Y)
+
+## ----pam3----------------------------------------------------------------
+table(pam3$clustering, Y)
+
+## ----pamSil--------------------------------------------------------------
+# Average silhouette widths for PAM with K = 2, ...,10 clusters
+K <- 2:10
+avgSil <- rep(NA, length(K))
+names(avgSil) <- K
+for(k in K)
+  avgSil[k-1] <- pam(as.dist(d), k=k, diss=TRUE)$silinfo$avg.width
+
+# Graphical summaries
+barplot(avgSil, names.arg=K, xlab="Number of clusters, K",
+        ylab="Average silhouette width")
+plot(K, avgSil, pch=16, cex=2, xlab="Number of clusters, K",
+     ylab="Average silhouette width")
+
+## ----pamGraphSum---------------------------------------------------------
+# PAM, K=5
+pam5 <- pam(as.dist(d), k=5, diss=TRUE)
+
+# Graphical summaries
+clusplot(d, pam5$clustering, diss=TRUE, labels=3, col.p=1, col.txt=rank(unique(Y))[factor(Y)]+1, main="Bivariate cluster plot for PAM \n K=5 clusters, one-minus-correlation distance")
+plot(pam5,which.plots=2,main="Silhouette plot for PAM \n K=5 clusters, one-minus-correlation distance") 
+
+## ----avgSil--------------------------------------------------------------
+round(avgSil,3)
+K[which.max(avgSil)]
+
+## ----pam5----------------------------------------------------------------
+table(pam5$clustering, Y)
+
+```
+
+Clustering with PAM shows that the data does not fit well using the PAM clustering method. K = 5 has highest average silhouette width, but it's still not a good fit as the value is pretty close to zero.
+
+#Hierarchical Clustering
+
+```{r}
+
+## ----hclust--------------------------------------------------------------
+# One-minus-correlation distance matrix
+r <- cor(exprSet.loess)
+d <- 1-r
+dimnames(d) <- list(as.vector(Y),as.vector(Y))
+
+# Average linkage agglomerative hierarchical clustering
+hc <- hclust(as.dist(d), method="average")
+hc
+
+# Dendrogram
+plot(hc, labels=Y, main="Hierarchical clustering dendrogram",
+     sub="Average linkage agglomeration, 
+     one-minus-correlation distance")
+rect.hclust(hc, k=5, which=c(2,4,5),border=c(3,2,4))
+
+## ----cophenetic----------------------------------------------------------
+round(cor(cophenetic(hc),as.dist(d)),2)
+
+## ----cutree--------------------------------------------------------------
+table(cutree(hc,5),Y)
+
+## ----hclustDendro--------------------------------------------------------
+# Select the 50 probes with the largest absolute coefficients of variation
+X <- exprSet.loess
+cv <- apply(X,1, function(z) abs(sd(z)/mean(z)))
+Xtop <- X[rev(order(cv))[1:50],]
+dimnames(Xtop)[[2]] <- Y
+
+# Heatmaps
+
+myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")))
+
+
+heatmap(Xtop,col=rainbow(30),
+        ColSideColors=c("red","green","blue")[rank(unique(Y))
+                                              [factor(Y)]])
+
+heatmap.2(Xtop,
+          ColSideColors=c("red","green","blue")
+          [rank(unique(Y))[factor(Y)]],
+          labCol=colnames(Xtop), 
+          trace="none", key=TRUE, density.info="none",
+          col=myPalette)
+invisible(dev.off())
+
+```
+
+The agglomerative hierarchical cluster analysis reveals that the clustering is a good fit as revealed by the cophenetic correlation coefficient. The heatmaps reveal the different levels of gene expressions by the cells. The dendrograms were not able to classify the resistant and the sensitive cell lines into two clear grous. The gene expression patterns revealed by the heat maps do not suggest a clear distinction between the resistant cell lines and the sensitive cell lines.
+
+##c. Differential expression analysis
+
+I use the two-sample t-test to see if the gene expressions between the resistant cell lines and the sensitive cell lines are different. The assumption I am making is that the gene expressions are indepent and normally distributed among the cell lines. Also, another assumption I am making is that the two cell groups, resistant and sensitive, are independent of each other. I am also assuming equal variance of gene expression levels between the two groups for each of the genes.
+
+```{r}
+
+ttest <- matrix(data = NA, 
+                nrow = nrow(exprSet.quantile), 
+                ncol = 2)
+
+for(i in 1:nrow(exprSet.quantile)){
+  test <- t.test(exprSet.quantile[i, 1:10], exprSet.quantile[i, 11:22])
+  ttest[i, ] <- c(test$statistic, test$p.value)
+}
+
+dim(ttest)
+
+colnames(ttest) <- c('T.stat', 'p.value')
+
+#adjustments
+ttest[is.na(ttest[,2]),2] <- 1 #replace all rows where p-value is NA is 1.
+
+p.values <- ttest[,2]
+hist(p.values)
+
+sum(p.values < 0.05)
+
+p.values.adjust <- p.adjust(p.values, method = 'fdr') #false decovery rate
+hist(p.values.adjust)
+sum(p.values.adjust < 0.05)
+
+rownames(exprSet.quantile[which(p.values.adjust < 0.05),])
+
+```
+
+After adjusting for the false discovery rate, the four genes that are differentially expressed in the resistant and the sensitive cell lines are `r rownames(exprSet.quantile[which(p.values.adjust < 0.05),])`.
+
+
+
+
+
+
+
